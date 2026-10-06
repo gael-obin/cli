@@ -185,11 +185,35 @@ func (s *Server) GetConfiguration(ctx context.Context, req *cli.GetConfiguration
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	workspace, err := flow.WorkspaceConfigurationsFor(ctx, svc)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	// Use the runtime's shared projection for workspace values and invocation
+	// context. Managed commands must observe the fixture selected by this flow.
+	manager := resources.NewEnvironmentVariableManager()
+	runtimeEnvironment, err := environment.Runtime().Proto()
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	manager.SetEnvironment(runtimeEnvironment)
+	manager.SetFixture(flow.Fixture())
+	if err := manager.AddConfigurations(ctx, workspace...); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	variables, err := manager.All()
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	processVariables := make([]*basev0.ConfigurationValue, 0, len(variables))
+	for _, variable := range variables {
+		processVariables = append(processVariables, &basev0.ConfigurationValue{
+			Key: variable.Key, Value: variable.ValueAsString(), Secret: variable.Secret,
+		})
+	}
 	return &cli.GetConfigurationResponse{
-		Configuration: conf,
-		ProcessVariables: []*basev0.ConfigurationValue{{
-			Key: resources.EnvironmentPrefix, Value: environment.Name,
-		}},
+		Configuration:    conf,
+		ProcessVariables: processVariables,
 	}, nil
 }
 

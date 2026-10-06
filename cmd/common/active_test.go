@@ -104,6 +104,49 @@ func writeActiveFixture(t *testing.T, path, contents string) {
 	}
 }
 
+// Selecting the same composed service from its directory must not bypass the
+// workspace override that applies when selecting it by name or as a dependency.
+func TestActiveServiceUsesWorkspaceAgentOverride(t *testing.T) {
+	root := t.TempDir()
+	writeActiveFixture(t, filepath.Join(root, resources.WorkspaceConfigurationName), `name: example
+layout: modules
+modules:
+  - name: backend
+agent-overrides:
+  codefly.dev/go: 0.2.0
+`)
+	moduleDir := filepath.Join(root, "modules", "backend")
+	writeActiveFixture(t, filepath.Join(moduleDir, resources.ModuleConfigurationName), `kind: module
+name: backend
+service-entry: api
+services:
+  - name: api
+`)
+	serviceDir := filepath.Join(moduleDir, "services", "api")
+	writeActiveFixture(t, filepath.Join(serviceDir, resources.ServiceConfigurationName), `name: api
+version: 0.0.0
+agent:
+  kind: codefly:service
+  name: go
+  version: 0.1.0
+  publisher: codefly.dev
+endpoints:
+  - name: http
+`)
+	for _, dir := range []string{root, moduleDir, serviceDir} {
+		t.Run(filepath.Base(dir), func(t *testing.T) {
+			t.Chdir(dir)
+			_, _, service, err := LoadRequiredNonInteractiveE(t.Context(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if service.Agent.Version != "0.2.0" {
+				t.Fatalf("effective agent = %s, want workspace override 0.2.0", service.Agent.Version)
+			}
+		})
+	}
+}
+
 func TestLoadActiveContextDoesNotReturnStaleWorkspace(t *testing.T) {
 	ctx := context.Background()
 	firstDir := t.TempDir()

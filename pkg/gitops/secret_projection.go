@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -73,8 +74,13 @@ type externalSecretTemplate struct {
 }
 
 type externalSecretData struct {
-	SecretKey string               `yaml:"secretKey"`
-	RemoteRef externalSecretRemote `yaml:"remoteRef"`
+	SecretKey string                   `yaml:"secretKey"`
+	RemoteRef externalSecretRemote     `yaml:"remoteRef"`
+	SourceRef *externalSecretSourceRef `yaml:"sourceRef,omitempty"`
+}
+
+type externalSecretSourceRef struct {
+	StoreRef externalSecretStoreRef `yaml:"storeRef"`
 }
 
 type externalSecretRemote struct {
@@ -140,7 +146,7 @@ func serviceSecretProjection(scope unitScope, service string, secrets *environme
 	}
 	remotes := make(map[string]environments.EnvironmentSecretRemoteRef, len(keys))
 	read := func(key string, remote environments.EnvironmentSecretRemoteRef) error {
-		if prior, seen := remotes[key]; seen && prior != remote {
+		if prior, seen := remotes[key]; seen && !reflect.DeepEqual(prior, remote) {
 			return fmt.Errorf("service %q reads secret key %s from two remote locations", service, key)
 		}
 		remotes[key] = remote
@@ -201,10 +207,16 @@ func serviceSecretProjection(scope unitScope, service string, secrets *environme
 	data := make([]externalSecretData, 0, len(projected))
 	for _, key := range projected {
 		remote := remotes[key]
-		data = append(data, externalSecretData{
+		entry := externalSecretData{
 			SecretKey: key,
 			RemoteRef: externalSecretRemote{Key: remote.Key, Property: remote.Property},
-		})
+		}
+		if remote.SecretStore != nil {
+			entry.SourceRef = &externalSecretSourceRef{StoreRef: externalSecretStoreRef{
+				Name: remote.SecretStore.Name, Kind: remote.SecretStore.Kind,
+			}}
+		}
+		data = append(data, entry)
 	}
 	projection, err := externalSecretProjection(service, namespace, store, data)
 	if err != nil {
@@ -400,6 +412,11 @@ func addKustomizationResource(directory, resource string) error {
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
 	existing, _ := document["resources"].([]any)
+	for _, entry := range existing {
+		if entry == resource {
+			return nil
+		}
+	}
 	document["resources"] = append(existing, resource)
 	updated, err := yaml.Marshal(document)
 	if err != nil {

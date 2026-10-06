@@ -790,3 +790,39 @@ func TestValidateInventoryUnitsGovernSecretsBearingManagedBootstrapUnit(t *testi
 		t.Fatal("managed bootstrap unit without deployment evidence was accepted")
 	}
 }
+
+// ESO's per-entry sourceRef preserves shared identity keys alongside keys in
+// the service's default store, without splitting ownership of the target Secret.
+func TestServiceSecretProjectionPerKeyStore(t *testing.T) {
+	override := &environments.EnvironmentSecretStoreReference{Name: "identity-store", Kind: "ClusterSecretStore"}
+	secrets := cellServiceSecrets(environments.EnvironmentServiceSecretMapping{
+		RemoteKeys: map[string]environments.EnvironmentSecretRemoteRef{
+			"IDENTITY": {Key: "shared-product", Property: "client_secret", SecretStore: override},
+			"LOCAL":    {Key: "service-local"},
+		},
+	})
+	projection, err := serviceSecretProjection(unitScope{Namespace: "application"}, "accounts", secrets, []string{"IDENTITY", "LOCAL"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := yaml.Marshal(projection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	data := document["spec"].(map[string]any)["data"].([]any)
+	identity := data[0].(map[string]any)
+	store := identity["sourceRef"].(map[string]any)["storeRef"].(map[string]any)
+	if store["name"] != override.Name || store["kind"] != override.Kind {
+		t.Fatalf("store override lost: %s", encoded)
+	}
+	if _, exists := data[1].(map[string]any)["sourceRef"]; exists {
+		t.Fatalf("default key unexpectedly overridden: %s", encoded)
+	}
+	if projection.Spec.SecretStoreRef.Name != "cell-secrets" {
+		t.Fatalf("default store changed: %s", encoded)
+	}
+}

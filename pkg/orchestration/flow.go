@@ -2316,6 +2316,11 @@ func (flow *Flow) WithStartDocker(startDocker bool) {
 	flow.startDocker = startDocker
 }
 
+// Fixture returns the invocation fixture shared by service runtimes and managed commands.
+func (flow *Flow) Fixture() string {
+	return flow.fixture
+}
+
 func (flow *Flow) WithFixture(fixture string) {
 	flow.fixture = fixture
 }

@@ -184,3 +184,30 @@ carrier, and SDK-Go exposes raw and typed document accessors. This is separate
 from `service-config.values`, whose explicitly declared environment values
 remain strings. Render qualification does not establish live cloud identity,
 secret-store access or database connectivity.
+
+### Per-key secret stores
+
+A `service-secrets.services.<service>.remote-keys.<key>` mapping may declare
+`secret-store: {name: ..., kind: SecretStore | ClusterSecretStore}` beside `key`
+and optional `property`. The renderer preserves this as the External Secrets
+entry's `sourceRef.storeRef`; other keys continue using the service or environment
+store. Import and workspace serialization preserve the override even without a
+property. Defaults templates can carry the same store override.
+
+This uses the [External Secrets per-entry source reference](https://external-secrets.io/latest/api/externalsecret/).
+No secret value enters the coordinate document or rendered manifests.
+
+### In-cluster service egress
+
+`service-egress.services.<service>` carries Kubernetes `NetworkPolicyEgressRule`
+objects. The CLI uses the upstream Kubernetes API types and strict serialization.
+Each peer must combine an exact namespace-name selector with a nonempty pod
+selector; ports must be explicit numerical ports. Public IP blocks, unbounded
+destinations and unbounded ports are refused by this interface.
+
+The renderer binds these rules to the consuming service's actual pod labels and
+namespace in the selected overlay. It checks the resulting Kustomize output so a
+patch cannot silently remove or broaden the generated grant. The infrastructure
+producer must derive the destination selectors and listener port from the same
+record it uses to render the destination. This declaration does not provision the
+destination or prove that a CNI has enforced the resulting policy.

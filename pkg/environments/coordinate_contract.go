@@ -85,6 +85,9 @@ func (c *CoordinateContract) validate() error {
 	if err := env.ServiceSecrets.Validate(); err != nil {
 		return err
 	}
+	if err := env.ServiceEgress.Validate(); err != nil {
+		return err
+	}
 	if err := env.ServiceConfig.Validate(); err != nil {
 		return err
 	}

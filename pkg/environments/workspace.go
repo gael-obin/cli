@@ -106,6 +106,9 @@ func (env *Environment) Validate() error {
 	if err := env.ServiceSecrets.Validate(); err != nil {
 		return err
 	}
+	if err := env.ServiceEgress.Validate(); err != nil {
+		return err
+	}
 	if err := env.ServiceConfig.Validate(); err != nil {
 		return err
 	}

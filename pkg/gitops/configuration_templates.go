@@ -201,7 +201,11 @@ func producerPrimitiveRemote(
 		}
 	}
 	producerScope := environments.SecretScope{Workspace: scope.Workspace, Module: module, Service: service}
-	return secrets.RemoteRef(producerScope, primitive), store, nil
+	remote := secrets.RemoteRef(producerScope, primitive)
+	if remote.SecretStore != nil {
+		store = *remote.SecretStore
+	}
+	return remote, store, nil
 }
 
 // refusesNestedAssembly rejects a template that references another value the

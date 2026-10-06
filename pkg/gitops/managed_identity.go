@@ -32,6 +32,9 @@ func projectServiceConfiguration(ctx context.Context, root string, service *reso
 	if err := projectManagedIdentity(ctx, root, service, env, scope); err != nil {
 		return fmt.Errorf("project service %s managed identity: %w", service.Name, err)
 	}
+	if err := projectServiceEgress(root, service.Name, env, scope); err != nil {
+		return fmt.Errorf("project service %s egress: %w", service.Name, err)
+	}
 	if err := validateProjectedConfiguration(root, service, env, scope); err != nil {
 		return err
 	}

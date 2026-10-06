@@ -82,6 +82,20 @@ func loadActiveContext(ctx context.Context, interactive bool) (*ActiveContext, e
 		if err != nil {
 			return nil, err
 		}
+		// The path identifies the selection; the workspace owns its effective
+		// configuration, including composed-module agent overrides.
+		if module != nil {
+			module, err = workspace.LoadModuleFromName(ctx, module.Name)
+			if err != nil {
+				return nil, err
+			}
+			if service != nil {
+				service, err = module.LoadServiceFromName(ctx, service.Name)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
 
 		active.Module = module
 		active.Service = service

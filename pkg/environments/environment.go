@@ -106,12 +106,13 @@ type EnvironmentManagedSecretReference struct {
 // store: the remote key (an Azure Key Vault secret name, a Vault path, …) and,
 // for stores that hold structured documents, the property inside it.
 type EnvironmentSecretRemoteRef struct {
-	Key      string `yaml:"key"`
-	Property string `yaml:"property,omitempty"`
+	Key         string                           `yaml:"key"`
+	Property    string                           `yaml:"property,omitempty"`
+	SecretStore *EnvironmentSecretStoreReference `yaml:"secret-store,omitempty"`
 }
 
 // UnmarshalYAML accepts either a scalar remote key ("lodestar-accounts", which
-// means {key: "lodestar-accounts"}) or an explicit {key, property} mapping, so a
+// means {key: "lodestar-accounts"}) or an explicit {key, property, secret-store} mapping, so a
 // store that holds bare scalars stays terse while a store of JSON documents can
 // name the property.
 func (ref *EnvironmentSecretRemoteRef) UnmarshalYAML(node *yaml.Node) error {
@@ -120,7 +121,7 @@ func (ref *EnvironmentSecretRemoteRef) UnmarshalYAML(node *yaml.Node) error {
 	}
 	if node.Kind == yaml.MappingNode {
 		for i := 0; i < len(node.Content); i += 2 {
-			if key := node.Content[i].Value; key != "key" && key != "property" {
+			if key := node.Content[i].Value; key != "key" && key != "property" && key != "secret-store" {
 				return fmt.Errorf("unknown secret reference field %q", key)
 			}
 		}
@@ -129,12 +130,12 @@ func (ref *EnvironmentSecretRemoteRef) UnmarshalYAML(node *yaml.Node) error {
 	return node.Decode((*plain)(ref))
 }
 
-// MarshalYAML emits the terse scalar form (the remote key alone) when no property
+// MarshalYAML emits the terse scalar form (the remote key alone) when neither property nor a store override
 // is set, so a round-trip that re-serializes the workspace — `environment import`
 // rewrites it in place — preserves a scalar remote-key declaration instead of
-// expanding it to a {key: …} mapping. With a property it emits the full mapping.
+// expanding it to a {key: …} mapping. With a property or store override it emits the full mapping.
 func (ref EnvironmentSecretRemoteRef) MarshalYAML() (any, error) {
-	if ref.Property == "" {
+	if ref.Property == "" && ref.SecretStore == nil {
 		return ref.Key, nil
 	}
 	type plain EnvironmentSecretRemoteRef
@@ -611,6 +612,9 @@ func (ref EnvironmentSecretStoreReference) validate(label string) error {
 	if strings.TrimSpace(ref.Kind) == "" {
 		return fmt.Errorf("%s: kind cannot be empty", label)
 	}
+	if ref.Kind != "SecretStore" && ref.Kind != "ClusterSecretStore" {
+		return fmt.Errorf("%s: kind must be SecretStore or ClusterSecretStore", label)
+	}
 	return nil
 }
 
@@ -660,6 +664,11 @@ func (s *EnvironmentServiceSecrets) Validate() error {
 			}
 		}
 		for key, remote := range mapping.RemoteKeys {
+			if remote.SecretStore != nil {
+				if err := remote.SecretStore.validate(fmt.Sprintf("service-secrets service %q remote-key %q secret-store", name, key)); err != nil {
+					return err
+				}
+			}
 			if strings.TrimSpace(key) == "" {
 				return fmt.Errorf("service-secrets service %q: remote-key name cannot be empty", name)
 			}
@@ -679,6 +688,11 @@ func (s *EnvironmentServiceSecrets) Validate() error {
 func (ref *EnvironmentSecretRemoteRef) validate(label string) error {
 	if ref == nil {
 		return nil
+	}
+	if ref.SecretStore != nil {
+		if err := ref.SecretStore.validate(label + " secret-store"); err != nil {
+			return err
+		}
 	}
 	if strings.TrimSpace(ref.Key) == "" {
 		return fmt.Errorf("%s: defaults key cannot be empty", label)
@@ -725,8 +739,9 @@ func (s *EnvironmentServiceSecrets) RemoteRef(scope SecretScope, key string) Env
 				"{key}", key,
 			)
 			return EnvironmentSecretRemoteRef{
-				Key:      substitute.Replace(defaults.Key),
-				Property: substitute.Replace(defaults.Property),
+				Key:         substitute.Replace(defaults.Key),
+				Property:    substitute.Replace(defaults.Property),
+				SecretStore: defaults.SecretStore,
 			}
 		}
 	}
@@ -804,6 +819,11 @@ func (env *Environment) serviceScopedNames() map[string][]string {
 	if env.ServiceConfig != nil {
 		for name := range env.ServiceConfig.Services {
 			names["service-config"] = append(names["service-config"], name)
+		}
+	}
+	if env.ServiceEgress != nil {
+		for name := range env.ServiceEgress.Services {
+			names["service-egress"] = append(names["service-egress"], name)
 		}
 	}
 	if env.ServiceIdentity != nil {
@@ -950,6 +970,9 @@ type Environment struct {
 	// service. Absent, no identity is projected for them and their pods keep the
 	// namespace default service account. CLI-side; not serialized to proto.
 	ServiceIdentity *EnvironmentServiceIdentity `yaml:"service-identity,omitempty"`
+
+	// ServiceEgress grants declared in-cluster access to regular service pods.
+	ServiceEgress *EnvironmentServiceEgress `yaml:"service-egress,omitempty"`
 
 	// ResourceQuota, when set, renders a ResourceQuota (and an optional
 	// LimitRange of container defaults) into this environment's namespace so one
